@@ -10,6 +10,7 @@ import os
 import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Optional
 
 import pipmaster as pm
 import uvicorn
@@ -133,6 +134,11 @@ def create_app(args):
             # Initialize database connections
             await light_rag.initialize_storages()
 
+            # Initialize LightRAG shared storage for both LightRAG and RAGAnything modes
+            from lightrag.kg.shared_storage import initialize_share_data
+
+            initialize_share_data(workers=1)  # Single process mode
+
             await initialize_pipeline_status()
             pipeline_status = await get_namespace_data("pipeline_status")
 
@@ -144,7 +150,7 @@ def create_app(args):
                         pipeline_status["autoscanned"] = True
                         should_start_autoscan = True
 
-            # Only run auto scan when no other process started it first
+                # Only run auto scan when no other process started it first
             if should_start_autoscan:
                 # Create background task
                 task = asyncio.create_task(run_scanning_process(rag, doc_manager))
@@ -342,7 +348,7 @@ def create_app(args):
         from src.LightRAG.lightrag.rerank import custom_rerank
 
         async def server_rerank_func(
-            query: str, documents: list, top_k: int = None, **kwargs
+            query: str, documents: list, top_k: Optional[int] = None, **kwargs
         ):
             """Server rerank function with configuration from environment variables"""
             return await custom_rerank(
@@ -536,7 +542,9 @@ def create_app(args):
     async def get_status():
         """Get current system status"""
         try:
+            pipeline_busy = False
             pipeline_status = await get_namespace_data("pipeline_status")
+            pipeline_busy = pipeline_status.get("busy", False)
 
             if not auth_configured:
                 auth_mode = "disabled"
@@ -576,7 +584,7 @@ def create_app(args):
                     else None,
                 },
                 "auth_mode": auth_mode,
-                "pipeline_busy": pipeline_status.get("busy", False),
+                "pipeline_busy": pipeline_busy,
                 "keyed_locks": keyed_lock_info,
                 "core_version": core_version,
                 "api_version": __api_version__,
