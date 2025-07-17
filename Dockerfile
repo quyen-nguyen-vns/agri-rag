@@ -1,45 +1,56 @@
-# Use Python 3.11 slim image
-FROM python:3.11-slim
+# Build stage
+FROM python:3.11-slim AS builder
 
-# Set environment variables
-ENV PYTHONUNBUFFERED=1
-ENV PYTHONDONTWRITEBYTECODE=1
-ENV DEBIAN_FRONTEND=noninteractive
-
-# Set work directory
 WORKDIR /app
 
-# Install system dependencies
+# Install Rust and required build dependencies
 RUN apt-get update && apt-get install -y \
-    build-essential \
     curl \
-    git \
-    && rm -rf /var/lib/apt/lists/*
+    build-essential \
+    pkg-config \
+    && rm -rf /var/lib/apt/lists/* \
+    && curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y \
+    && . $HOME/.cargo/env
 
-# Install uv
-RUN pip install uv
+# Copy only requirements files first to leverage Docker cache
+COPY requirements.txt .
+COPY lightrag/api/requirements.txt ./lightrag/api/
 
-# Copy pyproject.toml and uv.lock
-COPY pyproject.toml uv.lock ./
+# Install dependencies
+ENV PATH="/root/.cargo/bin:${PATH}"
+RUN pip install --user --no-cache-dir -r requirements.txt
+RUN pip install --user --no-cache-dir -r lightrag/api/requirements.txt
 
-# Install Python dependencies
-RUN uv pip install -r pyproject.toml --extra api
+# Install depndencies for default storage
+RUN pip install --user --no-cache-dir nano-vectordb networkx
+# Install depndencies for default LLM
+RUN pip install --user --no-cache-dir openai ollama tiktoken
+# Install depndencies for default document loader
+RUN pip install --user --no-cache-dir pypdf2 python-docx python-pptx openpyxl
 
-# Copy application code
-COPY . .
+# Final stage
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Copy only necessary files from builder
+COPY --from=builder /root/.local /root/.local
+COPY ./lightrag ./lightrag
+COPY setup.py .
+
+RUN pip install ".[api]"
+# Make sure scripts in .local are usable
+ENV PATH=/root/.local/bin:$PATH
 
 # Create necessary directories
-RUN mkdir -p /app/rag_storage /app/output /tmp
+RUN mkdir -p /app/data/rag_storage /app/data/inputs
 
-# Set permissions
-RUN chmod +x api/agrirag_server.py api/run_example.py
+# Docker data directories
+ENV WORKING_DIR=/app/data/rag_storage
+ENV INPUT_DIR=/app/data/inputs
 
-# Expose port
-EXPOSE 8000
+# Expose the default port
+EXPOSE 9621
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:8000/health || exit 1
-
-# Default command
-CMD ["python", "api/agrirag_server.py"] 
+# Set entrypoint
+ENTRYPOINT ["python", "-m", "src.api.lightrag_server"]

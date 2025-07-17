@@ -21,36 +21,42 @@ from fastapi.responses import RedirectResponse
 from fastapi.security import OAuth2PasswordRequestForm
 from fastapi.staticfiles import StaticFiles
 
-from lightrag.api import __api_version__
-from lightrag.api.auth import auth_handler
-from lightrag.api.routers.document_routes import (
+from src.api import __api_version__
+from src.api.auth import auth_handler
+from src.api.routers.document_routes import (
     DocumentManager,
     create_document_routes,
     run_scanning_process,
 )
-from lightrag.api.routers.graph_routes import create_graph_routes
-from lightrag.api.routers.ollama_api import OllamaAPI
-from lightrag.api.routers.query_routes import create_query_routes
-from lightrag.api.utils_api import (
+from src.api.routers.graph_routes import create_graph_routes
+from src.api.routers.ollama_api import OllamaAPI
+from src.api.routers.query_routes import create_query_routes
+from src.api.utils_api import (
     check_env_file,
     display_splash_screen,
     get_combined_auth_dependency,
 )
-from lightrag.constants import (
+from src.LightRAG.lightrag import LightRAG
+from src.LightRAG.lightrag import __version__ as core_version
+from src.LightRAG.lightrag.constants import (
     DEFAULT_LOG_BACKUP_COUNT,
     DEFAULT_LOG_FILENAME,
     DEFAULT_LOG_MAX_BYTES,
 )
-from lightrag.kg.shared_storage import (
+from src.LightRAG.lightrag.kg.shared_storage import (
     cleanup_keyed_lock,
     get_namespace_data,
     get_pipeline_status_lock,
     initialize_pipeline_status,
 )
-from LightRAG.lightrag import LightRAG
-from LightRAG.lightrag import __version__ as core_version
-from lightrag.types import GPTKeywordExtractionFormat
-from lightrag.utils import EmbeddingFunc, get_env_value, logger, set_verbose_debug
+from src.LightRAG.lightrag.types import GPTKeywordExtractionFormat
+from src.LightRAG.lightrag.utils import (
+    EmbeddingFunc,
+    get_env_value,
+    logger,
+    set_verbose_debug,
+)
+from src.RAGAnything.raganything import RAGAnything, RAGAnythingConfig
 
 from .config import (
     get_default_host,
@@ -125,7 +131,7 @@ def create_app(args):
 
         try:
             # Initialize database connections
-            await rag.initialize_storages()
+            await light_rag.initialize_storages()
 
             await initialize_pipeline_status()
             pipeline_status = await get_namespace_data("pipeline_status")
@@ -152,7 +158,7 @@ def create_app(args):
 
         finally:
             # Clean up database connections
-            await rag.finalize_storages()
+            await light_rag.finalize_storages()
 
     # Initialize FastAPI
     app_kwargs = {
@@ -238,6 +244,43 @@ def create_app(args):
             **kwargs,
         )
 
+    def vision_model_func(
+        prompt, system_prompt=None, history_messages=[], image_data=None, **kwargs
+    ):
+        if image_data:
+            return openai_complete_if_cache(
+                "gpt-4o",
+                "",
+                system_prompt=None,
+                history_messages=[],
+                messages=[
+                    {"role": "system", "content": system_prompt}
+                    if system_prompt
+                    else None,
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": prompt},
+                            {
+                                "type": "image_url",
+                                "image_url": {
+                                    "url": f"data:image/jpeg;base64,{image_data}"
+                                },
+                            },
+                        ],
+                    }
+                    if image_data
+                    else {"role": "user", "content": prompt},
+                ],
+                api_key=os.getenv("LLM_BINDING_API_KEY"),
+                base_url=os.getenv("LLM_BINDING_HOST"),
+                **kwargs,
+            )
+        else:
+            return openai_alike_model_complete(
+                prompt, system_prompt, history_messages, **kwargs
+            )
+
     async def azure_openai_model_complete(
         prompt,
         system_prompt=None,
@@ -260,7 +303,7 @@ def create_app(args):
             api_key=os.getenv("AZURE_OPENAI_API_KEY"),
             api_version=os.getenv("AZURE_OPENAI_API_VERSION", "2024-08-01-preview"),
             **kwargs,
-        )
+        )  # type: ignore
 
     embedding_func = EmbeddingFunc(
         embedding_dim=args.embedding_dim,
@@ -296,7 +339,7 @@ def create_app(args):
     # Configure rerank function if enabled
     rerank_model_func = None
     if args.enable_rerank and args.rerank_binding_api_key and args.rerank_binding_host:
-        from lightrag.rerank import custom_rerank
+        from src.LightRAG.lightrag.rerank import custom_rerank
 
         async def server_rerank_func(
             query: str, documents: list, top_k: int = None, **kwargs
@@ -321,7 +364,7 @@ def create_app(args):
 
     # Initialize RAG
     if args.llm_binding in ["lollms", "ollama", "openai"]:
-        rag = LightRAG(
+        light_rag = LightRAG(
             working_dir=args.working_dir,
             workspace=args.workspace,
             llm_model_func=lollms_model_complete
@@ -360,7 +403,7 @@ def create_app(args):
             addon_params={"language": args.summary_language},
         )
     else:  # azure_openai
-        rag = LightRAG(
+        light_rag = LightRAG(
             working_dir=args.working_dir,
             workspace=args.workspace,
             llm_model_func=azure_openai_model_complete,
@@ -389,6 +432,18 @@ def create_app(args):
             max_graph_nodes=args.max_graph_nodes,
             addon_params={"language": args.summary_language},
         )
+    config = RAGAnythingConfig(
+        working_dir=args.working_dir,
+        mineru_parse_method="auto",
+        enable_image_processing=True,
+        enable_table_processing=True,
+        enable_equation_processing=False,
+    )
+    rag = RAGAnything(
+        lightrag=light_rag,
+        config=config,
+        vision_model_func=vision_model_func,
+    )
 
     # Add routes
     app.include_router(

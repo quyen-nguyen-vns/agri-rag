@@ -1,28 +1,22 @@
-version: '3.8'
-
 services:
-  # Main AgriRAG application
-  agrirag:
-    build: .
-    container_name: agrirag_app
-    volumes:
-      - ./rag_storage:/app/rag_storage
-      - ./output:/app/output
-      - ./LightRAG:/app/LightRAG
-      - ./RAGAnything:/app/RAGAnything
+  lightrag:
+    container_name: lightrag
+    image: lightrag-agri:v1.0.0
+    build:
+      context: .
+      dockerfile: Dockerfile
+      tags:
+        - lightrag-agri:v1.0.0
     ports:
-      - "8000:8000"
-    depends_on:
-      postgres:
-        condition: service_healthy
-      neo4j:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    networks:
-      - agrirag_network
+      - "${PORT:-9621}:9621"
+    volumes:
+      - ./data/rag_storage:/app/data/rag_storage
+      - ./data/inputs:/app/data/inputs
+      - ./config.ini:/app/config.ini
+      - ./.env:/app/.env
+      - ./lightrag:/app/lightrag
+    env_file:
+      - .env
     restart: unless-stopped
-
-networks:
-  agrirag_network:
-    driver: bridge
+    extra_hosts:
+      - "host.docker.internal:host-gateway"

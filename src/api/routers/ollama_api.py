@@ -1,18 +1,20 @@
-from fastapi import APIRouter, HTTPException, Request
-from pydantic import BaseModel
-from typing import List, Dict, Any, Optional, Type
-from lightrag.utils import logger
-import time
+import asyncio
 import json
 import re
+import time
 from enum import Enum
-from fastapi.responses import StreamingResponse
-import asyncio
+from typing import Any, Dict, List, Optional, Type
+
 from ascii_colors import trace_exception
-from lightrag import LightRAG, QueryParam
-from lightrag.utils import TiktokenTokenizer
-from lightrag.api.utils_api import ollama_server_infos, get_combined_auth_dependency
-from fastapi import Depends
+from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
+
+from lightrag.utils import logger
+from src.api.utils_api import get_combined_auth_dependency, ollama_server_infos
+from src.LightRAG.lightrag import LightRAG, QueryParam
+from src.LightRAG.lightrag.utils import TiktokenTokenizer
+from src.RAGAnything.raganything import RAGAnything
 
 
 # query mode according to query prefix (bypass is not LightRAG quer mode)
@@ -219,7 +221,12 @@ def parse_query_mode(query: str) -> tuple[str, SearchMode, bool, Optional[str]]:
 
 
 class OllamaAPI:
-    def __init__(self, rag: LightRAG, top_k: int = 60, api_key: Optional[str] = None):
+    def __init__(
+        self,
+        rag: LightRAG | RAGAnything,
+        top_k: int = 60,
+        api_key: Optional[str] = None,
+    ):
         self.rag = rag
         self.ollama_server_infos = ollama_server_infos
         self.top_k = top_k

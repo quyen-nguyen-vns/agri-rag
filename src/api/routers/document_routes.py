@@ -3,15 +3,14 @@ This module contains all document-related routes for the LightRAG API.
 """
 
 import asyncio
-from pyuca import Collator
-from lightrag.utils import logger
-import aiofiles
 import shutil
 import traceback
-import pipmaster as pm
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Optional, Any, Literal
+from typing import Any, Dict, List, Literal, Optional
+
+import aiofiles
+import pipmaster as pm
 from fastapi import (
     APIRouter,
     BackgroundTasks,
@@ -21,10 +20,13 @@ from fastapi import (
     UploadFile,
 )
 from pydantic import BaseModel, Field, field_validator
+from pyuca import Collator
 
-from lightrag import LightRAG
-from lightrag.base import DeletionResult, DocProcessingStatus, DocStatus
-from lightrag.api.utils_api import get_combined_auth_dependency
+from src.api.utils_api import get_combined_auth_dependency
+from src.LightRAG.lightrag.base import DeletionResult, DocProcessingStatus, DocStatus
+from src.LightRAG.lightrag.utils import logger
+from src.RAGAnything.raganything import RAGAnything
+
 from ..config import global_args
 
 
@@ -549,7 +551,7 @@ class DocumentManager:
         return any(filename.lower().endswith(ext) for ext in self.supported_extensions)
 
 
-async def pipeline_enqueue_file(rag: LightRAG, file_path: Path) -> bool:
+async def pipeline_enqueue_file(rag, file_path: Path) -> bool:
     """Add a file to the queue for processing
 
     Args:
@@ -629,7 +631,9 @@ async def pipeline_enqueue_file(rag: LightRAG, file_path: Path) -> bool:
                 if global_args.document_loading_engine == "DOCLING":
                     if not pm.is_installed("docling"):  # type: ignore
                         pm.install("docling")
-                    from docling.document_converter import DocumentConverter  # type: ignore
+                    from docling.document_converter import (
+                        DocumentConverter,  # type: ignore
+                    )
 
                     converter = DocumentConverter()
                     result = converter.convert(file_path)
@@ -637,8 +641,9 @@ async def pipeline_enqueue_file(rag: LightRAG, file_path: Path) -> bool:
                 else:
                     if not pm.is_installed("pypdf2"):  # type: ignore
                         pm.install("pypdf2")
-                    from PyPDF2 import PdfReader  # type: ignore
                     from io import BytesIO
+
+                    from PyPDF2 import PdfReader  # type: ignore
 
                     pdf_file = BytesIO(file)
                     reader = PdfReader(pdf_file)
@@ -648,7 +653,9 @@ async def pipeline_enqueue_file(rag: LightRAG, file_path: Path) -> bool:
                 if global_args.document_loading_engine == "DOCLING":
                     if not pm.is_installed("docling"):  # type: ignore
                         pm.install("docling")
-                    from docling.document_converter import DocumentConverter  # type: ignore
+                    from docling.document_converter import (
+                        DocumentConverter,  # type: ignore
+                    )
 
                     converter = DocumentConverter()
                     result = converter.convert(file_path)
@@ -659,8 +666,9 @@ async def pipeline_enqueue_file(rag: LightRAG, file_path: Path) -> bool:
                             pm.install("python-docx")
                         except Exception:
                             pm.install("docx")
-                    from docx import Document  # type: ignore
                     from io import BytesIO
+
+                    from docx import Document  # type: ignore
 
                     docx_file = BytesIO(file)
                     doc = Document(docx_file)
@@ -671,7 +679,9 @@ async def pipeline_enqueue_file(rag: LightRAG, file_path: Path) -> bool:
                 if global_args.document_loading_engine == "DOCLING":
                     if not pm.is_installed("docling"):  # type: ignore
                         pm.install("docling")
-                    from docling.document_converter import DocumentConverter  # type: ignore
+                    from docling.document_converter import (
+                        DocumentConverter,  # type: ignore
+                    )
 
                     converter = DocumentConverter()
                     result = converter.convert(file_path)
@@ -679,8 +689,9 @@ async def pipeline_enqueue_file(rag: LightRAG, file_path: Path) -> bool:
                 else:
                     if not pm.is_installed("python-pptx"):  # type: ignore
                         pm.install("pptx")
-                    from pptx import Presentation  # type: ignore
                     from io import BytesIO
+
+                    from pptx import Presentation  # type: ignore
 
                     pptx_file = BytesIO(file)
                     prs = Presentation(pptx_file)
@@ -692,7 +703,9 @@ async def pipeline_enqueue_file(rag: LightRAG, file_path: Path) -> bool:
                 if global_args.document_loading_engine == "DOCLING":
                     if not pm.is_installed("docling"):  # type: ignore
                         pm.install("docling")
-                    from docling.document_converter import DocumentConverter  # type: ignore
+                    from docling.document_converter import (
+                        DocumentConverter,  # type: ignore
+                    )
 
                     converter = DocumentConverter()
                     result = converter.convert(file_path)
@@ -700,8 +713,9 @@ async def pipeline_enqueue_file(rag: LightRAG, file_path: Path) -> bool:
                 else:
                     if not pm.is_installed("openpyxl"):  # type: ignore
                         pm.install("openpyxl")
-                    from openpyxl import load_workbook  # type: ignore
                     from io import BytesIO
+
+                    from openpyxl import load_workbook  # type: ignore
 
                     xlsx_file = BytesIO(file)
                     wb = load_workbook(xlsx_file)
@@ -730,7 +744,9 @@ async def pipeline_enqueue_file(rag: LightRAG, file_path: Path) -> bool:
                     f"File contains only whitespace characters. file_paths={file_path.name}"
                 )
 
-            await rag.apipeline_enqueue_documents(content, file_paths=file_path.name)
+            await rag.lightrag.apipeline_enqueue_documents(
+                content, file_paths=file_path.name
+            )
             logger.info(f"Successfully fetched and enqueued file: {file_path.name}")
             return True
         else:
@@ -748,7 +764,7 @@ async def pipeline_enqueue_file(rag: LightRAG, file_path: Path) -> bool:
     return False
 
 
-async def pipeline_index_file(rag: LightRAG, file_path: Path):
+async def pipeline_index_file(rag, file_path: Path):
     """Index a file
 
     Args:
@@ -757,14 +773,14 @@ async def pipeline_index_file(rag: LightRAG, file_path: Path):
     """
     try:
         if await pipeline_enqueue_file(rag, file_path):
-            await rag.apipeline_process_enqueue_documents()
+            await rag.lightrag.apipeline_process_enqueue_documents()
 
     except Exception as e:
         logger.error(f"Error indexing file {file_path.name}: {str(e)}")
         logger.error(traceback.format_exc())
 
 
-async def pipeline_index_files(rag: LightRAG, file_paths: List[Path]):
+async def pipeline_index_files(rag, file_paths: List[Path]):
     """Index multiple files sequentially to avoid high CPU load
 
     Args:
@@ -787,15 +803,13 @@ async def pipeline_index_files(rag: LightRAG, file_paths: List[Path]):
 
         # Process the queue only if at least one file was successfully enqueued
         if enqueued:
-            await rag.apipeline_process_enqueue_documents()
+            await rag.lightrag.apipeline_process_enqueue_documents()
     except Exception as e:
         logger.error(f"Error indexing files: {str(e)}")
         logger.error(traceback.format_exc())
 
 
-async def pipeline_index_texts(
-    rag: LightRAG, texts: List[str], file_sources: List[str] = None
-):
+async def pipeline_index_texts(rag, texts: List[str], file_sources: List[str] = None):
     """Index a list of texts
 
     Args:
@@ -811,8 +825,8 @@ async def pipeline_index_texts(
                 file_sources.append("unknown_source")
                 for _ in range(len(file_sources), len(texts))
             ]
-    await rag.apipeline_enqueue_documents(input=texts, file_paths=file_sources)
-    await rag.apipeline_process_enqueue_documents()
+    await rag.lightrag.apipeline_enqueue_documents(input=texts, file_paths=file_sources)
+    await rag.lightrag.apipeline_process_enqueue_documents()
 
 
 # TODO: deprecate after /insert_file is removed
@@ -839,7 +853,7 @@ async def save_temp_file(input_dir: Path, file: UploadFile = File(...)) -> Path:
     return temp_path
 
 
-async def run_scanning_process(rag: LightRAG, doc_manager: DocumentManager):
+async def run_scanning_process(rag, doc_manager: DocumentManager):
     """Background task to scan and index documents"""
     try:
         new_files = doc_manager.scan_directory_for_new_files()
@@ -859,7 +873,7 @@ async def run_scanning_process(rag: LightRAG, doc_manager: DocumentManager):
 
 
 async def background_delete_documents(
-    rag: LightRAG,
+    rag,
     doc_manager: DocumentManager,
     doc_ids: List[str],
     delete_file: bool = False,
@@ -1014,7 +1028,9 @@ async def background_delete_documents(
 
 
 def create_document_routes(
-    rag: LightRAG, doc_manager: DocumentManager, api_key: Optional[str] = None
+    rag: RAGAnything,
+    doc_manager: DocumentManager,
+    api_key: Optional[str] = None,
 ):
     # Create combined auth dependency for document routes
     combined_auth = get_combined_auth_dependency(api_key)
@@ -1387,8 +1403,8 @@ def create_document_routes(
         """
         try:
             from lightrag.kg.shared_storage import (
-                get_namespace_data,
                 get_all_update_flags_status,
+                get_namespace_data,
             )
 
             pipeline_status = await get_namespace_data("pipeline_status")
@@ -1455,7 +1471,7 @@ def create_document_routes(
                 DocStatus.FAILED,
             )
 
-            tasks = [rag.get_docs_by_status(status) for status in statuses]
+            tasks = [rag.lightrag.get_docs_by_status(status) for status in statuses]
             results: List[Dict[str, DocProcessingStatus]] = await asyncio.gather(*tasks)
 
             response = DocsStatusesResponse()

@@ -34,7 +34,10 @@ class QueryMixin:
             )
 
         # Create query parameters
-        query_param = QueryParam(mode=mode, **kwargs)
+        if "param" in kwargs:
+            query_param = kwargs.pop("param")
+        else:
+            query_param = QueryParam(mode=mode, **kwargs)
 
         self.logger.info(f"Executing text query: {query[:100]}...")
         self.logger.info(f"Query mode: {mode}")

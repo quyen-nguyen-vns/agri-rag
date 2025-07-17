@@ -99,7 +99,7 @@ async def main():
 
     # Process a document
     await rag.process_document_complete(
-        file_path="/Users/mac/thinhquyen/vns/code/argi_kb/data/doc-data/pdf/1640919293Durian Production Guide.pdf",
+        file_path="/Users/mac/thinhquyen/vns/code/argi_kb/data/doc-data/pdf/C2BC4F73-5912-4924-92F63FAE52E5D9A6-durian-protocol.pdf",
         output_dir="./output",
         parse_method="auto",
     )

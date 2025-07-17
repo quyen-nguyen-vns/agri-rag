@@ -323,3 +323,5 @@ lightrag_webui/dist/
 lightrag_webui/build/
 lightrag_webui/.env.local
 lightrag_webui/.env.production
+inputs/
+output/
